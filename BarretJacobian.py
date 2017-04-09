@@ -7,15 +7,18 @@ import numpy as np
 import time
 
 #from transforms3d import *
-from transforms3d.axangles import *
-from transforms3d.quaternions import *
-
+#from transforms3d.axangles import *
+#from transforms3d.quaternions import *
+from transforms3d.euler import *
+import random
+from os import *
 
 from openravepy import *
 env = Environment() # create openrave environment
 env.SetViewer('qtcoin') # attach viewer (optional)
-env.Load('/home/viki/openrave/src/robots/barrettwam.robot.xml') # load a simple scene
-robotInit = env.GetRobots()[0] # get the first robot
+#env.Load('/home/viki/openrave/src/robots/barrettwam.robot.xml') # load a simple scene
+env.Load(getenv("HOME") + '/openrave/src/robots/barrettwam.robot.xml')
+robot = env.GetRobots()[0] # get the first robot
 
 from openravepy.misc import *
 InitOpenRAVELogging()
@@ -23,15 +26,10 @@ InitOpenRAVELogging()
 
 PI = np.pi
 
-#for link in robotInit.GetLinks():
-#   for geom in link.GetGeometries():
-#            geom.SetTransparency(0.1)
-robotTarget = RaveCreateRobot(env,robotInit.GetXMLId())
-robotTarget.Clone(robotInit,0) 
-env.AddRobot(robotTarget,True)
-manip=robotTarget.GetManipulators()[0]
-CoordTarget = None
-CoordInit=DrawAxes(env,robotInit.GetManipulators()[0].GetTransformPose(),0.1)
+manip=robot.GetManipulators()[0]
+
+Coords = []
+
 viewer = env. GetViewer()
 CamTrafo = np.array([[ 0.96150224, -0.13236341,  0.24081814, -0.61274928],
     [-0.27203665, -0.33457765,  0.90224933, -2.18945813],
@@ -39,42 +37,49 @@ CamTrafo = np.array([[ 0.96150224, -0.13236341,  0.24081814, -0.61274928],
     [ 0.        ,  0.        ,  0.        ,  1.        ]])
 viewer.SetCamera(CamTrafo)
 viewer.SendCommand('ShowWorldAxes 1')
-for link in robotTarget.GetLinks():
-    for geom in link.GetGeometries():
-        geom.SetTransparency(0.001)
 
 	  
-def setTarget(StepYAW=0.5, StepPITCH=0.5, StepROLL=0.5, joint0=0, joint1=0, joint2=0, joint3=0, joint4=0, joint5=0, joint6=0, NumSteps=10, TimeSleep=0.1): 
-    # all arguements in Degrees
-
+def setTarget( NumSteps=10, TimeSleep=0.1): 
+    j0L=robot.GetJoints()[0].GetLimits()[1]
+    j1L=robot.GetJoints()[1].GetLimits()[1]
     for step in range(NumSteps):
         global manip
-        angJ = manip.CalculateAngularVelocityJacobian()
-        wManip = [PI*StepROLL/180.0,  PI*StepPITCH/180.0, PI*StepYAW/180.0]
+        #robotInit.SetDOFValues(np.deg2rad(joint0, joint1, joint2, joint3, joint4, joint5, joint6));
+        #robotTarget.SetDOFValues([joint0, joint1, joint2, joint3, joint4, joint5, joint6]);
+        quatJ = manip.CalculateRotationJacobian()
+        #wManip = euler2quat(np.deg2rad(StepROLL), np.deg2rad(StepPITCH), np.deg2rad(StepYAW), 'sxyz')
+        #quatManip0 = manip.GetTransformPose()[0:4]
+	#quatManip1 = qmult(quatManip0, wManip)
+	#j0W = np.sin(step/(NumSteps+1)*j0L)/1000.0
+	#j1W = np.cos(step/(NumSteps+1)*j1L)/1000.0
+	j0W = random.uniform(-j0L, j0L)/1000.0
+	j1W = random.uniform(-j1L, j1L)/1000.0
+	err = quatJ[0:4,0:2].dot([j0W, j1W]) # for erratic movement of the first two joints
+        main5 = quatJ[0:4,2:7] # the remaining 5 joints compensating the erratic movement
         try:
-            wSol=np.linalg.lstsq(angJ, wManip)
-            print "Full Sollution for np.linalg.lstsq(angJ, wManip), Step= " + str(step)
-            print wSol
+            wSol=np.linalg.lstsq(main5, -err)
+            #print "Full Sollution for np.linalg.lstsq(angJ, wManip), Step= " + str(step)
+            #print wSol
             #print "Solution:"
             #print wSol[0]
-            deltaDOFValues = wSol[0]
+            sol = wSol[0]
             #print "deltaDOFValues + robotTarget.GetDOFValues() : "
-            global robotTarget
+            deltaDOFValues = np.concatenate([j0W, j1W, sol[0], sol[1], sol[2], sol[3], sol[4]])
             print  deltaDOFValues + manip.GetArmDOFValues()
             newDOFValues = deltaDOFValues + manip.GetArmDOFValues()
-	    robotTarget.SetDOFValues(np.array(newDOFValues), manip.GetArmIndices())
-	    global CoordTarget
-            CoordTarget = DrawAxes(env, manip.GetTransformPose(),0.1)
+	    robot.SetDOFValues(np.array(newDOFValues), manip.GetArmIndices())
+	    #global CoordInit
+            coord = DrawAxes(env, manip.GetTransformPose(), 1.0)
+            Coords.append(coord)
             time.sleep(TimeSleep)
 	except  np.linalg.linalg.LinAlgError:
-	    raise ValueError("Inversion for angular Jacobian does not converge.")  
+	    raise ValueError("Inversion for quaternion Jacobian does not converge.")  
 	  
-def reset(joint0=0, joint1=0, joint2=0, joint3=0, joint4=0, joint5=0, joint6=0): # Manipulator's joints
-    global robotInit,robotTarget, manip, CoordInit, CoordTarget
-    robotInit.SetDOFValues([joint0, joint1, joint2, joint3, joint4, joint5, joint6], manip.GetArmIndices())
-    CoordInit=DrawAxes(env,robotInit.GetManipulators()[0].GetTransformPose(),0.1)
-    robotTarget.SetDOFValues([joint0, joint1, joint2, joint3, joint4, joint5, joint6], manip.GetArmIndices())
-    CoordTarget=DrawAxes(env, robotTarget.GetManipulators()[0].GetTransformPose(),0.1)
+def reset(joint0=0.0, joint1=0.0, joint2=0.0, joint3=0.0, joint4=0.0, joint5=0.0, joint6=0.0): # Manipulator's joints
+    global robot, manip, Coords
+    robot.SetDOFValues(np.deg2rad([joint0, joint1, joint2, joint3, joint4, joint5, joint6]), manip.GetArmIndices())
+    del Coords[:]
+
     
 
 def printRobot(robot):
