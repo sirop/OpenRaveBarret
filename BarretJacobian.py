@@ -39,7 +39,15 @@ viewer.SetCamera(CamTrafo)
 viewer.SendCommand('ShowWorldAxes 1')
 
 	  
-def setTarget( NumSteps=10, TimeSleep=0.1): 
+def setTarget( NumSteps=10, TimeSleep=0.1):
+    """
+    recorder = RaveCreateModule(env,'viewerrecorder')
+    env.AddModule(recorder,'')
+    codecs = recorder.SendCommand('GetCodecs') # linux only
+    filename = 'openrave.mpg'
+    codec = 13 # mpeg4
+    recorder.SendCommand('Start 640 480 10 codec %d timing realtime filename %s\nviewer %s'%(codec,filename,env.GetViewer().GetName()))
+    """
     j0L=robot.GetJoints()[0].GetLimits()[1]
     j1L=robot.GetJoints()[1].GetLimits()[1]
     for step in range(NumSteps):
@@ -52,8 +60,8 @@ def setTarget( NumSteps=10, TimeSleep=0.1):
 	#quatManip1 = qmult(quatManip0, wManip)
 	#j0W = np.sin(step/(NumSteps+1)*j0L)/1000.0
 	#j1W = np.cos(step/(NumSteps+1)*j1L)/1000.0
-	j0W = random.uniform(-j0L, j0L)/1000.0
-	j1W = random.uniform(-j1L, j1L)/1000.0
+	j0W = random.uniform(-j0L, j0L)/20.0
+	j1W = random.uniform(-j1L, j1L)/20.0
 	err = quatJ[0:4,0:2].dot([j0W, j1W]) # for erratic movement of the first two joints
         main5 = quatJ[0:4,2:7] # the remaining 5 joints compensating the erratic movement
         try:
@@ -65,11 +73,13 @@ def setTarget( NumSteps=10, TimeSleep=0.1):
             sol = wSol[0]
             #print "deltaDOFValues + robotTarget.GetDOFValues() : "
             deltaDOFValues = np.concatenate([j0W, j1W, sol[0], sol[1], sol[2], sol[3], sol[4]])
-            print  deltaDOFValues + manip.GetArmDOFValues()
+            #print  deltaDOFValues + manip.GetArmDOFValues()
+            YPR = np.rad2deg(quat2euler(manip.GetTransformPose()[0:4], 'rzyx')) # EE orientation as Yaw Pitch Roll
+            print("Yaw {} , Pitch {} , Roll {}".format(YPR[0],YPR[1],YPR[2]) )
             newDOFValues = deltaDOFValues + manip.GetArmDOFValues()
 	    robot.SetDOFValues(np.array(newDOFValues), manip.GetArmIndices())
 	    #global CoordInit
-            coord = DrawAxes(env, manip.GetTransformPose(), 1.0)
+            coord = DrawAxes(env, manip.GetTransformPose(), 0.20)
             Coords.append(coord)
             time.sleep(TimeSleep)
 	except  np.linalg.linalg.LinAlgError:
